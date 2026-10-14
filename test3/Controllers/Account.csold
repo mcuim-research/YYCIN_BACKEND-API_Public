@@ -1,0 +1,95 @@
+﻿using Microsoft.AspNetCore.Mvc;
+
+namespace test3.Controllers
+{
+    public class Account
+    {
+        [Route("api/[controller]")]
+        [ApiController]
+        public class AccountController : ControllerBase
+        {
+            private readonly ModelDbContext _context;
+            private ISessionWrapper session;
+
+            public AccountController(ModelDbContext context, ISessionWrapper session)
+            {
+                _context = context;
+                this.session = session;
+            }
+        }
+        [HttpGet("login")]
+        public ActionResult<AccountTokenDTO> LoggedIn()
+        {
+            if (session.Acc == null)
+            {
+                return Problem("Error: you're not logged in.", statusCode: 403);
+            }
+            var accountName = session.Acc.AccountName;
+
+            var dto = new AccountTokenDTO();
+            dto.AccountName = accountName;
+            dto.Password = "";
+            dto.token = "";
+            return Ok(dto);
+        }
+
+        [HttpPost("login")]
+        public async Task<ActionResult<AccountTokenDTO>> Login(Account account)
+        {
+            var acc = await _context.Accounts.FindAsync(account.AccountName);
+            if (acc == null)
+            {
+                return Problem("Login Failed: Account Not Found", statusCode: 401);
+            }
+
+            if (!Cryptography.VerifyHash(account.Password, acc.Password))
+            {
+                return Problem("Login Failed: Incorrect Password");
+            }
+
+            account.Password = "";
+            session.Acc = acc;
+
+            AccountTokenDTO dto = new AccountTokenDTO();
+            dto.AccountName = acc.AccountName;
+            dto.token = session.tokenOutput;
+
+            return Ok(dto);
+        }
+
+        // POST: api/Account
+        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
+        [HttpPost("signup")]
+        public async Task<ActionResult<Account>> SignUp(Account account)
+        {
+            if (_context.Accounts == null)
+            {
+                return Problem("Invalid Request");
+            }
+            account.Password = Cryptography.Hash(account.Password);
+            _context.Accounts.Add(account);
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateException)
+            {
+                if (AccountExists(account.AccountName))
+                {
+                    return Conflict();
+                }
+                else
+                {
+                    throw;
+                }
+            }
+
+            return Ok("You're logged in !!!");
+        }
+        private bool AccountExists(string id)
+        {
+            return (_context.Accounts?.Any(e => e.AccountName == id)).GetValueOrDefault();
+        }
+    }
+}
+}
